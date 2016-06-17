@@ -4,6 +4,8 @@ import os
 # import sys
 import time
 
+from PyQt4 import QtGui, QtCore
+
 from PIL import Image
 import exifread
 import shutil
@@ -12,14 +14,15 @@ import hashlib
 TYPE_IMG = 1
 TYPE_RAW = 2
 TYPE_VID = 3
+TYPE_OTHER = 4
 
-EXT_IMG = ['.jpg', '.jpeg', '.tif', '.tiff']
-EXT_VID = ['.mp4', '.mov', '.mts', '.avchd']
-EXT_RAW = ['.raw', '.arw']
+EXT_IMG = ['.jpg', '.jpeg', '.tif', '.tiff', '.png', '.bmp', '.svg']
+EXT_VID = ['.mp4', '.mov', '.mts', '.avchd', '.avi', '.wmv', ',.ogv', '.m4v']
+EXT_RAW = ['.3fr', '.ari', '.arw', '.bay', '.crw', '.cr2', '.cap', '.data', '.dcs', '.dcr', '.dng', '.drf', '.eip', '.erf', '.fff', '.iiq', '.k25', '.kdc', '.mdc', '.mef', '.mos', '.mrw', '.nef', '.nrw', '.obm', '.orf', '.pef', '.ptx', '.pxn', '.r3d', '.raf', '.raw', '.rwl', '.rw2', '.rwz', '.sr2', '.srf', '.srw', '.tif', '.x3f']
 
 # what tags use to redate file (use first found)
 DT_TAGS = ["Image DateTime", "EXIF DateTimeOriginal", "DateTime"]
-
+        
 class FileInfo(object):
     def __init__(self):
         self.time = None
@@ -30,12 +33,61 @@ class FileInfo(object):
         self.pathfull = None
         self.year = None
         self.month = None
+        self.day = None
         self.timestr = None
+
+class ReportSource(object):
+    def __init__(self):
+        self.files_total = 0
+        self.files_img = 0
+        self.files_raw = 0
+        self.files_vid = 0
+        self.files_other = 0
+        self.files_with_exif_time = 0
+        self.files_without_exif_time = 0
+    
+    def str(self):
+        out = '\n'
+        out += 'Total                  : %d\n' % self.files_total
+        out += 'Images                 : %d\n' % self.files_img
+        out += 'Raw                    : %d\n' % self.files_raw
+        out += 'Videos                 : %d\n' % self.files_vid
+        out += 'Other                  : %d\n' % self.files_other
+        out += 'Files with exif time   : %d\n' % self.files_with_exif_time
+        out += 'Files without exif time: %d\n' % self.files_without_exif_time
+        out += 'Will attempt to import : %d\n' % (self.files_total - self.files_other)
+        out += 'Which should equal     : %d\n' % (self.files_img + self.files_raw + self.files_vid)
+        return out
+
+class ReportDest(object):
+    def __init__(self):
+        self.all = []
+        self.skipped_unrecognized = []
+        self.skipped_duplicate = []
+        self.renamed = []
+        self.imported = []
+            
+    def str(self):
+        out = '\n'
+        out += 'Unrecognized      : %d\n' % len(self.skipped_unrecognized)
+        out += 'Duplicate         : %d\n' % len(self.skipped_duplicate)
+#         out += str(self.skipped_duplicate) + '\n'
+        out += 'Renamed           : %d\n' % len(self.renamed)
+        out += 'Imported          : %d\n' % len(self.imported)
+        out += 'Which should equal: %d' % (len(self.all) - len(self.skipped_duplicate) - len(self.skipped_unrecognized))
+        return out
+                   
+class Importer(QtGui.QWidget):
+    def __init__(self):
+        super(Importer, self).__init__()
+#         self.log = log
+        self.progress = 0.0
         
-class Importer(object):
-    def __init__(self, log):
-        self.log = log
-        self.status = 0.0
+        self.report_source = ReportSource()
+        self.report_dest = ReportDest()
+    
+    def log(self, text):
+        self.emit(QtCore.SIGNAL('log_entry'), text)
     
     def hashfile(self, path, blocksize=65536):
         afile = open(path, 'rb')
@@ -95,70 +147,105 @@ class Importer(object):
         return None
     
     def process_file_list(self, filelist, destination_root, copy=True):
-        self.status = 0.0
+        self.report_dest.all = filelist
+        self.progress = 0.0
         cnt = 0
         n = len(filelist)
         for f in filelist:
-            self.status = 100.0 * float(cnt) / float(n)
+            self.progress = 100.0 * float(cnt) / float(n)
             cnt += 1
-            path = destination_root + '/' + f.year + '-' + f.month
+            path = os.path.join(destination_root, f.year + '-' + f.month)
             
             if f.type == TYPE_RAW:
-                path += '/raw'
-            if f.type == TYPE_VID:
-                path += '/vid'
+                path = os.path.join(path, 'raw')  # '+= '/raw'
+            elif f.type == TYPE_VID:
+                path = os.path.join(path, 'vid')  # += '/vid'
+            elif f.type == TYPE_IMG:
+                pass
+            else:
+                self.log('Skipping unrecognized file type found: %s' % f.pathfull)
+                self.report_dest.skipped_unrecognized.append(f.pathfull)
+                continue
     
-            pathfull = path + '/' + f.year + '_' + f.month + '_' + f.timestr + '_' + f.name
+            pathfull = os.path.join(path, f.year + '_' + f.month + '_' + f.day + '_' + f.timestr + '_' + f.name)
+#             pathfull = os.path.join(path, f.name)
             if not os.path.exists(path):
                 os.makedirs(path)
                     
             count = 0
             move = True
+            # TODO(Gabe) - Make this behavior for duplicates more customizable
             if (os.path.exists(pathfull)):
                 # Check if hash is equal
                 src_hash = self.hashfile(f.pathfull)
                 dst_hash = self.hashfile(pathfull)
                 if (src_hash != dst_hash):
                     while (os.path.exists(pathfull)):  
-                        self.log('Duplicate file found: ' + str(count) + 'dest, ' + pathfull, ' src, ' + f.pathfull)            
+                        self.log('Same file name found for multiple files who are not identical. Renaming and keeping both: ' + str(count) + 'dest, ' + pathfull + ' src, ' + f.pathfull)            
                         count += 1
-                        pathfull = self.insert_suffix(pathfull, 'copy')                    
+                        pathfull = self.insert_suffix(pathfull, 'copy')
+                    self.report_dest.renamed.append([f.pathfull, pathfull])
                 else:
-                    self.log('Skipping duplicate file: ' + pathfull)
+                    self.log('Skipping duplicate file (same filename and identical file contents): ' + pathfull)
+                    self.report_dest.skipped_duplicate.append([f.pathfull, pathfull])
                     move = False
     
-            if move:      
+            if move: 
+                self.report_dest.imported.append([f.pathfull, pathfull])     
                 if copy:
-                    shutil.copy(f.pathfull, pathfull)
+                    shutil.copy2(f.pathfull, pathfull)
                 else:
                     shutil.move(f.pathfull, pathfull)
                                                
+#         self.emit(QtCore.SIGNAL('process_file_list'))
     
+    def count_files(self, root):
+        self.file_count = 0
+        os.path.walk(root, self._count_files, self.file_count)
     
-    def process_source_directory(self, filelist, dirname, files):
-        for filename in files:
-            info = FileInfo()
-            for ext in EXT_IMG:
-                if (filename.lower().endswith(ext)):
-                    info.type = EXT_IMG
-                    break
-                
-            if (not info.type):
-                for ext in EXT_RAW:
+    def _count_files(self, filelist, destination_root):
+        pass
+        
+        
+    def process_source_directory(self, filelist, dirname, names):
+        n = len(names)
+        self.progress = 0.0
+        cnt = 0.0
+        for filename in names:
+            self.progress = cnt / n
+            cnt += 1
+            fullname = os.path.join(dirname, filename)
+            if not os.path.isdir(fullname):
+                self.report_source.files_total += 1
+                info = FileInfo()
+                for ext in EXT_IMG:
                     if (filename.lower().endswith(ext)):
-                        info.type = TYPE_RAW
-                        break
-    
-            if (not info.type):
-                for ext in EXT_VID:
-                    if (filename.lower().endswith(ext)):
-                        info.type = TYPE_VID
-                        break
+                        info.type = TYPE_IMG
+                        self.report_source.files_img += 1
+                        break     
                 
-            if (info.type):
+                if (not info.type):
+                    for ext in EXT_RAW:
+                        if (filename.lower().endswith(ext)):
+                            info.type = TYPE_RAW
+                            self.report_source.files_raw += 1
+                            break
+                
+                if (not info.type):
+                    for ext in EXT_VID:
+                        if (filename.lower().endswith(ext)):
+                            info.type = TYPE_VID
+                            self.report_source.files_vid += 1
+                            break
+                        
+                if (not info.type): 
+                    self.log('Skipping unrecognized file type: %s' % fullname)
+                    self.report_source.files_other += 1
+                    continue
+    
                 info.path = dirname 
                 info.name = filename
-                info.pathfull = info.path + '/' + info.name
+                info.pathfull = fullname
                 info.time = None
                 s = os.stat(info.pathfull)
                 file_time = s[8]           
@@ -168,17 +255,19 @@ class Importer(object):
                     try:
                         info.time = self.get_exif_date_exifread(info.pathfull)
                     except:
-                        self.log('Something is terribly wrong! Both PIL and exifread raises exception')
+                        self.log('PIL and exifread raises exceptions for %s' % filename)
             
                 if (not info.time):
                     self.log('Timestamp from metadata was blank for %s. Using file timestamp instead.' % (info.pathfull))
                     info.time = file_time
+                    self.report_source.files_without_exif_time += 1
+                else:
+                    self.report_source.files_with_exif_time += 1
                         
                 if info.time:
                     info.year = time.strftime("%Y", time.gmtime(info.time))
                     info.month = time.strftime("%m", time.gmtime(info.time))
+                    info.day = time.strftime("%d", time.gmtime(info.time))
                     info.timestr = time.strftime("%H%M%S", time.gmtime(info.time))
                     filelist.append(info)
-                else:
-                    self.log('xxxxxxxxxxxxxxxxxxxxxxxxxxxx error!')
-    
+

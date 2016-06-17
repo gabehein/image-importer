@@ -7,30 +7,49 @@ from PyQt4 import QtGui, QtCore
 
 import importer
 
-class ProcessThread(QtCore.QThread):
+class ProcessDestDirectory(QtCore.QThread):
     def __init__(self, files, destdir, importer):
         QtCore.QThread.__init__(self)
         self.files = files
         self.destdir = destdir
         self.importer = importer
-        
+         
         self.timer = QtCore.QTimer()
-        self.timer.timeout.connect(self.signal_status_update)
+        self.timer.timeout.connect(self.StatusUpdate)
         self.timer.start(250)
-        
+         
     def __del__(self):
         self.wait()
-    
-    def get_status(self):
-#         print self.importer.status
-        return self.importer.status
-        
+     
     def run(self):
         self.importer.process_file_list(self.files, self.destdir)
+        self.emit(QtCore.SIGNAL('ImportDoneCallback'))
+        
+    def StatusUpdate(self):
+        self.emit(QtCore.SIGNAL('UpdateProgressBarCallback'), self.importer.progress)
+ 
+class ProcessSourceDirectory(QtCore.QThread):
+    def __init__(self, files, srcdir, importer):
+        QtCore.QThread.__init__(self)
+        self.files = files
+        self.srcdir = srcdir
+        self.importer = importer
+         
+        self.timer = QtCore.QTimer()
+        self.timer.timeout.connect(self.StatusUpdate)
+        self.timer.start(250)
+         
+    def __del__(self):
+        self.wait()
+     
+    def run(self):
+        os.path.walk(self.srcdir, self.importer.process_source_directory, self.files)
+        self.emit(QtCore.SIGNAL('ProcessSourceDoneCallback'))
             
-    def signal_status_update(self):
-        self.emit(QtCore.SIGNAL('update_progress'))
-          
+    def StatusUpdate(self):
+        self.emit(QtCore.SIGNAL('UpdateProgressBarCallback'), self.importer.progress)
+         
+    
 class CameraImporter(QtGui.QWidget):
     def __init__(self):
         super(CameraImporter, self).__init__()
@@ -53,22 +72,33 @@ class CameraImporter(QtGui.QWidget):
         self.process.clicked.connect(self.ImportCallback)
         self.layout.addWidget(self.process)
         
+        # TODO(Gabe) - Need to add way of stopping processing midway through
+#         self.stop = QtGui.QPushButton('Stop Import')
+#         self.stop.clicked.connect(self.StopImportCallback)
+#         self.layout.addWidget(self.stop)
+        
         self.textbox = QtGui.QTextEdit()
         self.textbox.setReadOnly(True)
         self.textbox.setLineWrapMode(QtGui.QTextEdit.NoWrap)
 
         self.layout.addWidget(self.textbox)
         
+        self.status_label = QtGui.QLabel('')
+        self.layout.addWidget(self.status_label)
+        
         self.progress_bar = QtGui.QProgressBar()
         self.progress_bar.setMaximum(100)
         self.progress_bar.setValue(0)
-
+        
         self.layout.addWidget(self.progress_bar)
         self.setLayout(self.layout)
         
-        self.importer = importer.Importer(self.log)
+        # TODO(Gabe) - Add combobox for selecting between move files and copy files
+        self.importer = importer.Importer()
+        self.connect(self.importer, QtCore.SIGNAL('log_entry'), self.log)
         
         self.procthread = None
+        self.files = []
         
     def SrcCallback(self):
         self.srcdir = str(QtGui.QFileDialog.getExistingDirectory(parent=None, caption=QtCore.QString('Source: ')))
@@ -81,28 +111,46 @@ class CameraImporter(QtGui.QWidget):
         self.log('Destination: %s' % self.destdir)
             
     def ImportCallback(self):
+        self.status_label.setText('Processing Source Directory')
         self.log('---------- Processing source directory ----------')
-        files = []
-        os.path.walk(self.srcdir, self.importer.process_source_directory, files)
-        self.log('Found %d files' % len(files))    
-        self.procthread = ProcessThread(files, self.destdir, self.importer)
+        # TODO(Gabe) - This should happen in its own thread and update the progress bar just like the process thread
+        self.files = []
+        self.procthread = ProcessSourceDirectory(self.files, self.srcdir, self.importer)
+        self.connect(self.procthread, QtCore.SIGNAL('UpdateProgressBarCallback'), self.UpdateProgressBarCallback)
+        self.connect(self.procthread, QtCore.SIGNAL('ProcessSourceDoneCallback'), self.ProcessSourceDoneCallback)
         self.procthread.start()
-        self.connect(self.procthread, QtCore.SIGNAL('update_progress'), self.update_progress_bar)
         
-    def update_progress_bar(self):
+    def ProcessSourceDoneCallback(self):
+        self.status_label.setText('Processing Source Complete')
+        self.log('Found %d files' % len(self.files))
+        self.log(self.importer.report_source.str())
+        
+        self.status_label.setText('Performing Import')
+        self.log('---------- Performing Import --------------------')
+        self.procthread = ProcessDestDirectory(self.files, self.destdir, self.importer)
+        self.connect(self.procthread, QtCore.SIGNAL('UpdateProgressBarCallback'), self.UpdateProgressBarCallback)
+        self.connect(self.procthread, QtCore.SIGNAL('ImportDoneCallback'), self.ImportDoneCallback)
+        self.procthread.start()
+        
+    
+    def ImportDoneCallback(self):
+        self.status_label.setText('Import Complete')
+        self.log(self.importer.report_dest.str())
+        
+    def UpdateProgressBarCallback(self, progress):
         if (not self.procthread):  
             self.progress_bar.setValue(0)
-#             print 'xxx'
         else:
             if not self.procthread.isFinished():
-                self.progress_bar.setValue(self.procthread.get_status())
-#                 print 'yyy'
+                self.progress_bar.setValue(progress)
             else:
                 self.progress_bar.setValue(self.progress_bar.maximum())
 
     def log(self, text):
+        t = '[LOG]: ' + text
+        print t
         self.textbox.moveCursor(QtGui.QTextCursor.End)
-        self.textbox.insertPlainText('%s\n' % text)
+        self.textbox.insertPlainText('%s\n' % t)
         sb = self.textbox.verticalScrollBar()
         sb.setValue(sb.maximum())
         
