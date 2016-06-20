@@ -1,7 +1,7 @@
 #! /usr/bin/env python
 
 import sys
-import os
+# import os
 
 from PyQt4 import QtGui, QtCore
 
@@ -16,13 +16,13 @@ class ProcessDestDirectory(QtCore.QThread):
          
         self.timer = QtCore.QTimer()
         self.timer.timeout.connect(self.StatusUpdate)
-        self.timer.start(250)
+        self.timer.start(150)
          
     def __del__(self):
         self.wait()
      
     def run(self):
-        self.importer.process_file_list(self.files, self.destdir)
+        self.importer.ImportFiles(self.files, self.destdir)
         self.emit(QtCore.SIGNAL('ImportDoneCallback'))
         
     def StatusUpdate(self):
@@ -37,13 +37,14 @@ class ProcessSourceDirectory(QtCore.QThread):
          
         self.timer = QtCore.QTimer()
         self.timer.timeout.connect(self.StatusUpdate)
-        self.timer.start(250)
+        self.timer.start(150)
          
     def __del__(self):
         self.wait()
      
     def run(self):
-        os.path.walk(self.srcdir, self.importer.process_source_directory, self.files)
+        self.importer.ProcessSourceDirectory(self.files, self.srcdir)
+        # print 'xxxxxx Done processing source'
         self.emit(QtCore.SIGNAL('ProcessSourceDoneCallback'))
             
     def StatusUpdate(self):
@@ -122,7 +123,7 @@ class CameraImporter(QtGui.QWidget):
         
     def ProcessSourceDoneCallback(self):
         self.status_label.setText('Processing Source Complete')
-        self.log('Found %d files' % len(self.files))
+#         self.log('Found %d files' % len(self.files))
         self.log(self.importer.report_source.str())
         
         self.status_label.setText('Performing Import')
