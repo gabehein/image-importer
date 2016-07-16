@@ -110,10 +110,13 @@ class Importer(QtGui.QWidget):
         self.progress = 0.0
         self.report_source = ReportSource()
         self.report_dest = ReportDest()
-
+        self.dryrun = False
+        
     def ProcessSourceDirectory(self, filelist, root):  # filelist, dirname, names):       
         self.directory_info.root = root
         self.directory_info.Process()
+        
+        self.report_source = ReportSource()
         
         n = len(self.directory_info.files)
         self.progress = 0.0
@@ -150,7 +153,7 @@ class Importer(QtGui.QWidget):
                 if (not info.type): 
                     extension = '.' + filename.lower().split('.')[-1]
                     if (extension not in skip_extensions):
-                        self.log('Skipping unrecognized file type (all future %s files will also be skipped): %s' % (extension, fullname))
+                        self.Log('Skipping unrecognized file type (all future %s files will also be skipped): %s' % (extension, fullname))
                         skip_extensions.append(extension)
                     self.report_source.files_other += 1
                     continue
@@ -167,10 +170,10 @@ class Importer(QtGui.QWidget):
                     try:
                         info.time = self.GetExifDateExifread(info.pathfull)
                     except:
-                        self.log('PIL and exifread raises exceptions for %s' % filename)
+                        self.Log('PIL and exifread raises exceptions for %s' % filename)
             
                 if (not info.time):
-#                     self.log('Timestamp from metadata was blank for %s. Using file timestamp instead.' % (info.pathfull))
+#                     self.Log('Timestamp from metadata was blank for %s. Using file timestamp instead.' % (info.pathfull))
                     info.time = file_time
                     self.report_source.files_without_exif_time += 1
                 else:
@@ -182,8 +185,65 @@ class Importer(QtGui.QWidget):
                     info.day = time.strftime("%d", time.gmtime(info.time))
                     info.timestr = time.strftime("%H%M%S", time.gmtime(info.time))
                     filelist.append(info)
-           
-    def log(self, text):
+    
+    def ImportFiles(self, filelist, destination_root, copy=True):
+        self.report_dest = ReportDest()
+        
+        self.report_dest.all = filelist
+        self.progress = 0.0
+        cnt = 0
+        n = len(filelist)
+        skip_extensions = []
+        for f in filelist:
+            self.progress = 100.0 * float(cnt) / float(n)
+            cnt += 1
+            path = os.path.join(destination_root, f.year + '-' + f.month)
+            
+            if f.type == TYPE_RAW:
+                path = os.path.join(path, 'raw')
+            elif f.type == TYPE_VID:
+                path = os.path.join(path, 'vid')
+            elif f.type == TYPE_IMG:
+                pass
+            else:
+                extension = '.' + f.pathfull.lower().split('.')[-1]
+                if (extension not in skip_extensions):
+                    self.Log('Skipping unrecognized file type found: %s' % f.pathfull)
+                    skip_extensions.append(extension)
+                self.report_dest.skipped_unrecognized.append(f.pathfull)
+                continue
+    
+            pathfull = os.path.join(path, f.year + '_' + f.month + '_' + f.day + '_' + f.timestr + '_' + f.name)
+            if not os.path.exists(path):
+                os.makedirs(path)
+                    
+            count = 0
+            move = True
+            # TODO(Gabe) - Make this behavior for duplicates more customizable
+            if (os.path.exists(pathfull)):
+                # Check if hash is equal
+                src_hash = self.HashFile(f.pathfull)
+                dst_hash = self.HashFile(pathfull)
+                if (src_hash != dst_hash):
+                    while (os.path.exists(pathfull)):  
+                        self.Log('Same file name found for multiple files who are not identical. Renaming and keeping both: ' + str(count) + 'dest, ' + pathfull + ' src, ' + f.pathfull)            
+                        count += 1
+                        pathfull = self.InsertSuffix(pathfull, 'copy')
+                    self.report_dest.renamed.append([f.pathfull, pathfull])
+                else:
+                    self.Log('Skipping duplicate file (same filename and identical file contents): ' + pathfull)
+                    self.report_dest.skipped_duplicate.append([f.pathfull, pathfull])
+                    move = False
+    
+            if move: 
+                self.report_dest.imported.append([f.pathfull, pathfull])   
+                if (not self.dryrun): 
+                    if copy:
+                        shutil.copy2(f.pathfull, pathfull)
+                    else:
+                        shutil.move(f.pathfull, pathfull)
+                           
+    def Log(self, text):
         self.emit(QtCore.SIGNAL('log_entry'), text)
     
     def HashFile(self, path, blocksize=65536):
@@ -243,59 +303,6 @@ class Importer(QtGui.QWidget):
             return exif_time
         return None
     
-    def ImportFiles(self, filelist, destination_root, copy=True):
-        self.report_dest.all = filelist
-        self.progress = 0.0
-        cnt = 0
-        n = len(filelist)
-        skip_extensions = []
-        for f in filelist:
-            self.progress = 100.0 * float(cnt) / float(n)
-            cnt += 1
-            path = os.path.join(destination_root, f.year + '-' + f.month)
-            
-            if f.type == TYPE_RAW:
-                path = os.path.join(path, 'raw')
-            elif f.type == TYPE_VID:
-                path = os.path.join(path, 'vid')
-            elif f.type == TYPE_IMG:
-                pass
-            else:
-                extension = '.' + f.pathfull.lower().split('.')[-1]
-                if (extension not in skip_extensions):
-                    self.log('Skipping unrecognized file type found: %s' % f.pathfull)
-                    skip_extensions.append(extension)
-                self.report_dest.skipped_unrecognized.append(f.pathfull)
-                continue
-    
-            pathfull = os.path.join(path, f.year + '_' + f.month + '_' + f.day + '_' + f.timestr + '_' + f.name)
-            if not os.path.exists(path):
-                os.makedirs(path)
-                    
-            count = 0
-            move = True
-            # TODO(Gabe) - Make this behavior for duplicates more customizable
-            if (os.path.exists(pathfull)):
-                # Check if hash is equal
-                src_hash = self.HashFile(f.pathfull)
-                dst_hash = self.HashFile(pathfull)
-                if (src_hash != dst_hash):
-                    while (os.path.exists(pathfull)):  
-                        self.log('Same file name found for multiple files who are not identical. Renaming and keeping both: ' + str(count) + 'dest, ' + pathfull + ' src, ' + f.pathfull)            
-                        count += 1
-                        pathfull = self.InsertSuffix(pathfull, 'copy')
-                    self.report_dest.renamed.append([f.pathfull, pathfull])
-                else:
-                    self.log('Skipping duplicate file (same filename and identical file contents): ' + pathfull)
-                    self.report_dest.skipped_duplicate.append([f.pathfull, pathfull])
-                    move = False
-    
-            if move: 
-                self.report_dest.imported.append([f.pathfull, pathfull])     
-                if copy:
-                    shutil.copy2(f.pathfull, pathfull)
-                else:
-                    shutil.move(f.pathfull, pathfull)
         
         
 

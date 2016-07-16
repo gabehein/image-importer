@@ -73,6 +73,11 @@ class CameraImporter(QtGui.QWidget):
         self.process.clicked.connect(self.ImportCallback)
         self.layout.addWidget(self.process)
         
+        self.dryrun = QtGui.QCheckBox('Dry Run')
+        self.dryrun.setChecked(False)
+        self.layout.addWidget(self.dryrun)
+        
+        
         # TODO(Gabe) - Need to add way of stopping processing midway through
 #         self.stop = QtGui.QPushButton('Stop Import')
 #         self.stop.clicked.connect(self.StopImportCallback)
@@ -96,7 +101,7 @@ class CameraImporter(QtGui.QWidget):
         
         # TODO(Gabe) - Add combobox for selecting between move files and copy files
         self.importer = importer.Importer()
-        self.connect(self.importer, QtCore.SIGNAL('log_entry'), self.log)
+        self.connect(self.importer, QtCore.SIGNAL('log_entry'), self.Log)
         
         self.procthread = None
         self.files = []
@@ -104,16 +109,16 @@ class CameraImporter(QtGui.QWidget):
     def SrcCallback(self):
         self.srcdir = str(QtGui.QFileDialog.getExistingDirectory(parent=None, caption=QtCore.QString('Source: ')))
         self.src.setText('Source: %s' % self.srcdir)
-        self.log('Source: %s' % self.srcdir)
+        self.Log('Source: %s' % self.srcdir)
          
     def DestCallback(self):
         self.destdir = str(QtGui.QFileDialog.getExistingDirectory(parent=None, caption=QtCore.QString('Destination: ')))
         self.dest.setText('Destination: %s' % self.destdir)
-        self.log('Destination: %s' % self.destdir)
+        self.Log('Destination: %s' % self.destdir)
             
     def ImportCallback(self):
         self.status_label.setText('Processing Source Directory')
-        self.log('---------- Processing source directory ----------')
+        self.Log('---------- Processing source directory ----------')
         # TODO(Gabe) - This should happen in its own thread and update the progress bar just like the process thread
         self.files = []
         self.procthread = ProcessSourceDirectory(self.files, self.srcdir, self.importer)
@@ -123,11 +128,12 @@ class CameraImporter(QtGui.QWidget):
         
     def ProcessSourceDoneCallback(self):
         self.status_label.setText('Processing Source Complete')
-#         self.log('Found %d files' % len(self.files))
-        self.log(self.importer.report_source.str())
+#         self.Log('Found %d files' % len(self.files))
+        self.Log(self.importer.report_source.str())
         
         self.status_label.setText('Performing Import')
-        self.log('---------- Performing Import --------------------')
+        self.Log('---------- Performing Import --------------------')
+        self.importer.dryrun = self.dryrun.checkState()  # getChecked()
         self.procthread = ProcessDestDirectory(self.files, self.destdir, self.importer)
         self.connect(self.procthread, QtCore.SIGNAL('UpdateProgressBarCallback'), self.UpdateProgressBarCallback)
         self.connect(self.procthread, QtCore.SIGNAL('ImportDoneCallback'), self.ImportDoneCallback)
@@ -136,7 +142,7 @@ class CameraImporter(QtGui.QWidget):
     
     def ImportDoneCallback(self):
         self.status_label.setText('Import Complete')
-        self.log(self.importer.report_dest.str())
+        self.Log(self.importer.report_dest.str())
         
     def UpdateProgressBarCallback(self, progress):
         if (not self.procthread):  
@@ -147,7 +153,7 @@ class CameraImporter(QtGui.QWidget):
             else:
                 self.progress_bar.setValue(self.progress_bar.maximum())
 
-    def log(self, text):
+    def Log(self, text):
         t = '[LOG]: ' + text
         print t
         self.textbox.moveCursor(QtGui.QTextCursor.End)
