@@ -200,7 +200,7 @@ class Importer(QtGui.QWidget):
             path = os.path.join(destination_root, f.year + '-' + f.month)
             
             if f.type == TYPE_RAW:
-                path = os.path.join(path, 'raw')
+                pass # path = os.path.join(path, 'raw')
             elif f.type == TYPE_VID:
                 path = os.path.join(path, 'vid')
             elif f.type == TYPE_IMG:
@@ -213,7 +213,7 @@ class Importer(QtGui.QWidget):
                 self.report_dest.skipped_unrecognized.append(f.pathfull)
                 continue
     
-            pathfull = os.path.join(path, f.year + '_' + f.month + '_' + f.day + '_' + f.timestr + '_' + f.name)
+            pathfull = os.path.join(path, f.year + f.month + f.day + f.timestr + '_' + f.name)
             if not os.path.exists(path):
                 os.makedirs(path)
                     
