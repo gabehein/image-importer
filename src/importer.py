@@ -163,7 +163,7 @@ class Importer(QtGui.QWidget):
                 info.pathfull = fullname
                 info.time = None
                 s = os.stat(info.pathfull)
-                file_time = s[8]           
+                file_time = s.st_ctime # [8]           
                 try:
                     info.time = self.GetExifDatePil(info.pathfull)
                 except:
