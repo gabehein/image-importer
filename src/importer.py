@@ -180,10 +180,10 @@ class Importer(QtGui.QWidget):
                     self.report_source.files_with_exif_time += 1
                         
                 if info.time:
-                    info.year = time.strftime("%Y", time.gmtime(info.time))
-                    info.month = time.strftime("%m", time.gmtime(info.time))
-                    info.day = time.strftime("%d", time.gmtime(info.time))
-                    info.timestr = time.strftime("%H%M%S", time.gmtime(info.time))
+                    info.year = time.strftime("%Y", time.localtime(info.time))
+                    info.month = time.strftime("%m", time.localtime(info.time))
+                    info.day = time.strftime("%d", time.localtime(info.time))
+                    info.timestr = time.strftime("%H%M%S", time.localtime(info.time))
                     filelist.append(info)
     
     def ImportFiles(self, filelist, destination_root, copy=True):
@@ -197,7 +197,8 @@ class Importer(QtGui.QWidget):
         for f in filelist:
             self.progress = 100.0 * float(cnt) / float(n)
             cnt += 1
-            path = os.path.join(destination_root, f.year + '-' + f.month)
+            path = os.path.join(destination_root, f.year)
+            path = os.path.join(path, f.month)
             
             if f.type == TYPE_RAW:
                 pass # path = os.path.join(path, 'raw')
@@ -213,7 +214,7 @@ class Importer(QtGui.QWidget):
                 self.report_dest.skipped_unrecognized.append(f.pathfull)
                 continue
     
-            pathfull = os.path.join(path, f.year + f.month + f.day + f.timestr + '_' + f.name)
+            pathfull = os.path.join(path, f.year + f.month + f.day + '_' + f.name)
             if not os.path.exists(path):
                 os.makedirs(path)
                     
