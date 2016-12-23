@@ -3,6 +3,7 @@
 import os
 # import sys
 import time
+import re
 
 from PyQt4 import QtGui, QtCore
 
@@ -20,9 +21,24 @@ EXT_IMG = ['.jpg', '.jpeg', '.tif', '.tiff', '.png', '.bmp', '.svg', '.gif', '.g
 EXT_VID = ['.mp4', '.mov', '.mts', '.avchd', '.avi', '.wmv', ',.ogv', '.m4v']
 EXT_RAW = ['.3fr', '.ari', '.arw', '.bay', '.crw', '.cr2', '.cap', '.data', '.dcs', '.dcr', '.dng', '.drf', '.eip', '.erf', '.fff', '.iiq', '.k25', '.kdc', '.mdc', '.mef', '.mos', '.mrw', '.nef', '.nrw', '.obm', '.orf', '.pef', '.ptx', '.pxn', '.r3d', '.raf', '.raw', '.rwl', '.rw2', '.rwz', '.sr2', '.srf', '.srw', '.tif', '.x3f']
 
+regex_yyy_mm_dd_ssssss = re.compile('\d\d\d\d_\d\d_\d\d_\d\d\d\d\d\d_')
+regex_yyy_mm_dd = re.compile('\d\d\d\d_\d\d_\d\d_')
+regex_yyymmddssssss = re.compile('\d\d\d\d\d\d\d\d\d\d\d\d\d\d_')
+regex_yyymmdd = re.compile('\d\d\d\d\d\d\d\d_')
+
+regexs = [regex_yyy_mm_dd_ssssss, regex_yyy_mm_dd, regex_yyymmddssssss, regex_yyymmdd]
+
 # what tags use to redate file (use first found)
 DT_TAGS = ["Image DateTime", "EXIF DateTimeOriginal", "DateTime"]
         
+def ReplaceTimestamp(input, timestamp):
+    for r in regexs:
+        m = r.findall(input)
+        if len(m) > 0:
+            return input.replace(m[0], timestamp + '_')
+        
+    return timestamp + '_' + input
+
 class DirectoryInfo(object):
     def __init__(self, root):
         self.root = root
@@ -163,7 +179,7 @@ class Importer(QtGui.QWidget):
                 info.pathfull = fullname
                 info.time = None
                 s = os.stat(info.pathfull)
-                file_time = s.st_ctime # [8]           
+                file_time = s.st_mtime  # [8]           
                 try:
                     info.time = self.GetExifDatePil(info.pathfull)
                 except:
@@ -201,7 +217,7 @@ class Importer(QtGui.QWidget):
             path = os.path.join(path, f.month)
             
             if f.type == TYPE_RAW:
-                pass # path = os.path.join(path, 'raw')
+                pass  # path = os.path.join(path, 'raw')
             elif f.type == TYPE_VID:
                 path = os.path.join(path, 'vid')
             elif f.type == TYPE_IMG:
@@ -214,7 +230,8 @@ class Importer(QtGui.QWidget):
                 self.report_dest.skipped_unrecognized.append(f.pathfull)
                 continue
     
-            pathfull = os.path.join(path, f.year + f.month + f.day + '_' + f.name)
+            # pathfull = os.path.join(path, f.year + f.month + f.day + '_' + f.name)
+            pathfull = os.path.join(path, ReplaceTimestamp(f.name, f.year + f.month + f.day + info.timestr))
             if not os.path.exists(path):
                 os.makedirs(path)
                     
