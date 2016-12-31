@@ -231,7 +231,7 @@ class Importer(QtGui.QWidget):
                 continue
     
             # pathfull = os.path.join(path, f.year + f.month + f.day + '_' + f.name)
-            pathfull = os.path.join(path, ReplaceTimestamp(f.name, f.year + f.month + f.day + info.timestr))
+            pathfull = os.path.join(path, ReplaceTimestamp(f.name, f.year + f.month + f.day + f.timestr))
             if not os.path.exists(path):
                 os.makedirs(path)
                     
