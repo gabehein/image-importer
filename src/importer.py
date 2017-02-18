@@ -19,7 +19,10 @@ TYPE_OTHER = 4
 
 EXT_IMG = ['.jpg', '.jpeg', '.tif', '.tiff', '.png', '.bmp', '.svg', '.gif', '.giff']
 EXT_VID = ['.mp4', '.mov', '.mts', '.avchd', '.avi', '.wmv', ',.ogv', '.m4v']
-EXT_RAW = ['.3fr', '.ari', '.arw', '.bay', '.crw', '.cr2', '.cap', '.data', '.dcs', '.dcr', '.dng', '.drf', '.eip', '.erf', '.fff', '.iiq', '.k25', '.kdc', '.mdc', '.mef', '.mos', '.mrw', '.nef', '.nrw', '.obm', '.orf', '.pef', '.ptx', '.pxn', '.r3d', '.raf', '.raw', '.rwl', '.rw2', '.rwz', '.sr2', '.srf', '.srw', '.tif', '.x3f']
+EXT_RAW = ['.3fr', '.ari', '.arw', '.bay', '.crw', '.cr2', '.cap', '.data', '.dcs', '.dcr',
+           '.dng', '.drf', '.eip', '.erf', '.fff', '.iiq', '.k25', '.kdc', '.mdc', '.mef',
+           '.mos', '.mrw', '.nef', '.nrw', '.obm', '.orf', '.pef', '.ptx', '.pxn', '.r3d',
+           '.raf', '.raw', '.rwl', '.rw2', '.rwz', '.sr2', '.srf', '.srw', '.tif', '.x3f']
 
 regex_yyy_mm_dd_ssssss = re.compile('\d\d\d\d_\d\d_\d\d_\d\d\d\d\d\d_')
 regex_yyy_mm_dd = re.compile('\d\d\d\d_\d\d_\d\d_')
@@ -40,9 +43,10 @@ def ReplaceTimestamp(input, timestamp):
     return timestamp + '_' + input
 
 class DirectoryInfo(object):
-    def __init__(self, root):
+    def __init__(self, root, logfunc):
         self.root = root
         self._reset()
+        self.Log = logfunc
         
     def _reset(self):
         self.files = []
@@ -51,18 +55,24 @@ class DirectoryInfo(object):
     def Process(self):
         self._reset()
         os.path.walk(self.root, self._ProcessDirectory, None)
-        print self.files
-        print self.dirs
-        print len(self.files)
-        print len(self.dirs)
         
     def _ProcessDirectory(self, _, root, files):
+        base = root
+        while (len(base) != 1):
+            base, tail = os.path.split(base)
+            if (tail.startswith('.')):
+                self.Log('Skipping hidden directory %s' % tail)
+                return 
+            
         for filename in files:
-            fullname = os.path.join(root, filename)
-            if os.path.isdir(fullname):
-                self.dirs.append(root)
+            if (filename.startswith('.')):
+                self.Log('Skipping hidden file %s' % filename)
             else:
-                self.files.append((filename, fullname, root))
+                fullname = os.path.join(root, filename)
+                if os.path.isdir(fullname):
+                    self.dirs.append(root)
+                else:
+                    self.files.append((filename, fullname, root))
                 
     
 class FileInfo(object):
@@ -122,7 +132,7 @@ class ReportDest(object):
 class Importer(QtGui.QWidget):
     def __init__(self):
         super(Importer, self).__init__()
-        self.directory_info = DirectoryInfo('')
+        self.directory_info = DirectoryInfo('', self.Log)
         self.progress = 0.0
         self.report_source = ReportSource()
         self.report_dest = ReportDest()
@@ -209,6 +219,7 @@ class Importer(QtGui.QWidget):
         self.progress = 0.0
         cnt = 0
         n = len(filelist)
+        processed = 1
         skip_extensions = []
         for f in filelist:
             self.progress = 100.0 * float(cnt) / float(n)
@@ -258,8 +269,11 @@ class Importer(QtGui.QWidget):
                 if (not self.dryrun): 
                     if copy:
                         shutil.copy2(f.pathfull, pathfull)
+                        self.Log('%03d: coppied %s => %s' % (processed, f.pathfull, pathfull))
                     else:
                         shutil.move(f.pathfull, pathfull)
+                        self.Log('%03d: moved %s => %s' % (processed, f.pathfull, pathfull))
+                    processed += 1
                            
     def Log(self, text):
         self.emit(QtCore.SIGNAL('log_entry'), text)
